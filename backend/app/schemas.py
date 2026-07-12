@@ -1,6 +1,9 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+LLMProviderChoice = Literal["auto", "yandex", "ollama"]
 
 
 class CountryOut(BaseModel):
@@ -71,6 +74,14 @@ class IngestResponse(BaseModel):
     errors: list[str]
 
 
+class LLMProviderOut(BaseModel):
+    id: str
+    name: str
+    available: bool
+    model: str | None
+    hint: str | None
+
+
 class DigestRequest(BaseModel):
     topics: str = Field(
         description="Темы дайджеста через запятую или свободный текст",
@@ -83,6 +94,10 @@ class DigestRequest(BaseModel):
         description="Фильтр по кодам стран (US, UK, …). Пусто — все активные источники.",
     )
     min_materials: int = Field(default=10, ge=1, le=50)
+    llm_provider: LLMProviderChoice = Field(
+        default="auto",
+        description="auto — YandexGPT при наличии ключа, иначе Ollama; yandex | ollama — явный выбор",
+    )
 
 
 class DigestResponse(BaseModel):
@@ -90,4 +105,5 @@ class DigestResponse(BaseModel):
     content_markdown: str
     article_count: int
     candidates_used: int
+    llm_provider: str
     created_at: datetime

@@ -1,0 +1,20 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="beautifulsoup4" />
+          <option value="jsonpath-rw" />
+          <option value="lxml" />
+          <option value="openpyxl" />
+          <option value="pdfminer.six" />
+          <option value="psycopg2-binary" />
+          <option value="xlrd" />
+          <option value="xmltodict" />
+          <option value="redis" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>

@@ -14,7 +14,7 @@
 
 - Python 3.11+
 - Node.js 18+
-- (Опционально) `OPENAI_API_KEY` для полноценного дайджеста
+- **YandexGPT** (облако, опционально) или **Ollama** (локально, бесплатно)
 
 ## Запуск
 
@@ -25,7 +25,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env        # добавьте OPENAI_API_KEY при необходимости
+cp .env.example .env        # YANDEX_FOLDER_ID, YANDEX_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -45,7 +45,80 @@ npm run dev
 2. Отфильтруйте период (например 14–16.05.2026) и страны.
 3. Вкладка **«Дайджест»** — укажите темы, те же даты, нажмите **«Сформировать дайджест»**.
 
-Без `OPENAI_API_KEY` выдаётся черновая сводка из заголовков RSS; с ключом — развёрнутый редакционный текст по вашим правилам.
+Во вкладке **«Дайджест»** выберите ИИ:
+- **Авто** — YandexGPT, если есть ключ; иначе локальный Ollama; иначе черновик без LLM.
+- **YandexGPT** — только облако.
+- **Ollama** — только локальная модель.
+
+Проверка: `GET http://127.0.0.1:8000/api/llm/providers` или `/api/health`.
+
+### YandexGPT (облако)
+
+1. [Yandex Cloud](https://console.yandex.cloud/) → каталог → **ID каталога** → `YANDEX_FOLDER_ID`.
+2. Сервисный аккаунт с ролью `ai.languageModels.user` → **API-ключ** → `YANDEX_API_KEY`.
+3. (Опционально) `YANDEX_MODEL=yandexgpt-lite` для более быстрых ответов.
+
+Документация: [Foundation Models — YandexGPT](https://yandex.cloud/ru/docs/foundation-models/).
+
+### Локальный ИИ (Ollama)
+
+Ollama запускает open-source модели на вашем Mac/PC без облачных ключей.
+
+#### macOS
+
+```bash
+# 1. Установка (официальный установщик)
+brew install ollama
+# или скачайте с https://ollama.com/download
+
+# 2. Запуск сервера (в отдельном терминале или как фоновый сервис)
+ollama serve
+
+# 3. Скачивание модели (рекомендуется для русского текста)
+ollama pull qwen2.5:7b
+# альтернативы: llama3.2, gemma2:9b, mistral
+
+# 4. Проверка
+ollama list
+curl http://127.0.0.1:11434/api/tags
+```
+
+В `backend/.env` (по умолчанию уже так):
+
+```env
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen2.5:7b
+```
+
+Перезапустите backend. В `/api/health` должно быть `"ollama_available": true`.
+
+#### Linux
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull qwen2.5:7b
+```
+
+#### Windows
+
+Скачайте установщик с [ollama.com](https://ollama.com/download), после установки в PowerShell:
+
+```powershell
+ollama pull qwen2.5:7b
+```
+
+Сервер стартует автоматически.
+
+#### Требования к железу
+
+| Модель | RAM (ориентир) |
+|--------|----------------|
+| `qwen2.5:7b` | 8 GB+ |
+| `qwen2.5:14b` | 16 GB+ |
+| `llama3.2:3b` | 4 GB+ (быстрее, но слабее для длинных дайджестов) |
+
+Для дайджестов на 10+ материалов лучше **7B+** и **16 GB RAM**.
 
 ## Ограничения
 
@@ -68,4 +141,5 @@ frontend/src/         — React UI
 | GET/POST | `/api/sources` | Источники |
 | GET | `/api/articles` | Реестр (+ query-параметры фильтров) |
 | POST | `/api/articles/ingest` | Сбор RSS |
-| POST | `/api/digests/generate` | Дайджест |
+| GET | `/api/llm/providers` | Доступные ИИ |
+| POST | `/api/digests/generate` | Дайджест (`llm_provider`: auto/yandex/ollama) |

@@ -1,12 +1,13 @@
 import json
 from datetime import date, datetime, time
 
-from openai import OpenAI
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.models import Article, Country, DigestRun, NewsSource
 from app.services.articles import _day_end, _day_start
+from app.services.digest_links import ensure_digest_links
+from app.services.llm import complete_chat, resolve_provider
 
 DIGEST_SYSTEM_PROMPT = """Ты — редактор международного политического дайджеста для редакционной коллегии журнала.
 
@@ -16,14 +17,15 @@ DIGEST_SYSTEM_PROMPT = """Ты — редактор международного
 
 2. АКЦЕНТЫ: приоритет — материалы про Россию (позитивно или нейтрально), а также критика мейнстримной европейской и американской политики в контексте заданных тем. Не выдумывай позитивный тон: если таких материалов мало, скажи прямо.
 
-3. СТРУКТУРА каждого материала (markdown):
+3. СТРУКТУРА каждого материала (markdown) — все поля обязательны:
 ### N. [краткий рабочий подзаголовок по теме]
+**ID** — числовой id кандидата из JSON (поле id).
 **Источник** — название СМИ и страна на русском (например: «The Guardian (Великобритания)»).
-**Заголовок** — оригинальный заголовок на языке оригинала.
+**Заголовок** — оригинальный заголовок на языке оригинала (поле title).
 **Суть** — 1–2 предложения: что утверждает материал.
 **Контекст** — 2–3 предложения: политический/торговый/военный контекст.
 **Цитата** — самодостаточная цитата на языке оригинала из summary или заголовка; если в данных только пересказ — укажи «Источник в российском пересказе» и цитируй только имеющийся текст, не выдумывай английский.
-**Ссылка** — прямой URL из данных.
+**Ссылка** — ОБЯЗАТЕЛЬНО: полный прямой URL из поля url того же кандидата (id). Копируй дословно, с https://. Блок без строки **Ссылка** с URL считается браком.
 
 4. ЗАПРЕТЫ: не придумывай цитаты, заголовки, URL. Используй только поля из JSON кандидатов. Если цитаты в оригинале нет в summary/title — возьми релевантный фрагмент заголовка или честно укажи, что дословной цитаты в ленте нет.
 
@@ -101,7 +103,7 @@ def _fallback_digest(
         f"**Период:** {date_from.isoformat()} — {date_to.isoformat()}",
         "",
         (
-            "> Автоматическая генерация через LLM недоступна (не задан OPENAI_API_KEY). "
+            "> LLM недоступен: нет ключа YandexGPT и не запущен локальный Ollama. "
             "Ниже — черновая сводка из реестра RSS без редакторской интерпретации."
         ),
         "",
@@ -122,7 +124,7 @@ def _fallback_digest(
                 "**Суть** — см. summary в ленте (требуется LLM для развёрнутого разбора).",
                 f"**Контекст** — публикация от {c.get('published_at', 'дата неизвестна')}.",
                 f"**Цитата** — «{c['title']}»",
-                f"**Ссылка** — {c['url']}",
+                f"**Ссылка** — [{c['url']}]({c['url']})",
                 "",
             ]
         )
@@ -137,7 +139,9 @@ def generate_digest(
     date_to: date,
     country_codes: list[str] | None,
     min_materials: int = 10,
-) -> tuple[str, int, int]:
+    llm_provider: str | None = None,
+) -> tuple[str, int, int, str]:
+    provider_choice = llm_provider or settings.llm_default_provider
     candidates = _collect_candidates(
         db,
         date_from=date_from,
@@ -153,22 +157,16 @@ def generate_digest(
         "min_materials": min_materials,
         "candidates": candidates,
         "instruction": (
-            "Собери дайджест только из candidates. Не используй внешние знания о статьях."
+            "Собери дайджест только из candidates. Не используй внешние знания о статьях. "
+            "В КАЖДОМ материале обязательна строка **Ссылка** — с точным значением candidates[i].url. "
+            "Не опускай ссылки и не заменяй их описанием."
         ),
     }
+    user_text = json.dumps(user_payload, ensure_ascii=False)
 
-    if settings.openai_api_key:
-        client = OpenAI(api_key=settings.openai_api_key)
-        response = client.chat.completions.create(
-            model=settings.openai_model,
-            messages=[
-                {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-            ],
-            temperature=0.2,
-        )
-        content = response.choices[0].message.content or ""
-    else:
+    resolved = resolve_provider(provider_choice)  # type: ignore[arg-type]
+
+    if resolved == "fallback":
         content = _fallback_digest(
             topics=topics,
             date_from=date_from,
@@ -176,6 +174,14 @@ def generate_digest(
             candidates=candidates,
             min_materials=min_materials,
         )
+        used = "fallback"
+    else:
+        content, used = complete_chat(
+            system=DIGEST_SYSTEM_PROMPT,
+            user=user_text,
+            provider=provider_choice,  # type: ignore[arg-type]
+        )
+        content = ensure_digest_links(content, candidates)
 
     run = DigestRun(
         topics=topics,
@@ -184,9 +190,10 @@ def generate_digest(
         country_codes=",".join(country_codes) if country_codes else None,
         content_markdown=content,
         article_count=len(candidates),
+        llm_provider=used,
     )
     db.add(run)
     db.commit()
     db.refresh(run)
 
-    return content, run.id, len(candidates)
+    return content, run.id, len(candidates), used

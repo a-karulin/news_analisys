@@ -37,6 +37,14 @@ export type ArticleListResponse = {
   page_size: number;
 };
 
+export type LLMProvider = {
+  id: string;
+  name: string;
+  available: boolean;
+  model: string | null;
+  hint: string | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -63,9 +71,13 @@ export const api = {
       "/api/articles/ingest",
       { method: "POST" },
     ),
+  llmProviders: () => request<LLMProvider[]>("/api/llm/providers"),
   generateDigest: (body: unknown) =>
-    request<{ id: number; content_markdown: string; article_count: number; candidates_used: number }>(
-      "/api/digests/generate",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      id: number;
+      content_markdown: string;
+      article_count: number;
+      candidates_used: number;
+      llm_provider: string;
+    }>("/api/digests/generate", { method: "POST", body: JSON.stringify(body) }),
 };

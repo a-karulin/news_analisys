@@ -58,4 +58,5 @@ class DigestRun(Base):
     country_codes: Mapped[str | None] = mapped_column(String(512), nullable=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     article_count: Mapped[int] = mapped_column(default=0)
+    llm_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

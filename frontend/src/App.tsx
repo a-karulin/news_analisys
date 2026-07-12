@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { api, Article, Country, NewsSource } from "./api";
+import { api, Article, Country, LLMProvider, NewsSource } from "./api";
 
 type Tab = "sources" | "registry" | "digest";
 
@@ -374,8 +374,16 @@ function DigestPanel({
   const [dateTo, setDateTo] = useState(todayIso());
   const [countryCodes, setCountryCodes] = useState<string[]>([]);
   const [minMaterials, setMinMaterials] = useState(10);
+  const [llmProvider, setLlmProvider] = useState("auto");
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [markdown, setMarkdown] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.llmProviders().then(setProviders).catch(() => setProviders([]));
+  }, []);
+
+  const selectedProvider = providers.find((p) => p.id === llmProvider);
 
   function toggleCountry(code: string) {
     setCountryCodes((prev) =>
@@ -393,11 +401,12 @@ function DigestPanel({
         date_to: dateTo,
         country_codes: countryCodes.length ? countryCodes : null,
         min_materials: minMaterials,
+        llm_provider: llmProvider,
       });
       setMarkdown(r.content_markdown);
       onMessage({
         type: "ok",
-        text: `Дайджест #${r.id}: кандидатов в выборке ${r.candidates_used}`,
+        text: `Дайджест #${r.id} (${r.llm_provider}): кандидатов ${r.candidates_used}`,
       });
     } catch (e) {
       onMessage({ type: "error", text: String(e) });
@@ -409,11 +418,35 @@ function DigestPanel({
   return (
     <div className="panel">
       <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
-        Дайджест строится только из материалов в реестре за указанные даты. LLM следует редакционным
-        правилам (без выдуманных цитат и ссылок). Задайте OPENAI_API_KEY для полноценного разбора.
+        Дайджест строится только из материалов в реестре за указанные даты. Режим «Авто»: YandexGPT
+        при наличии ключа, иначе локальный Ollama, иначе черновая сводка без LLM.
       </p>
 
       <div className="filters">
+        <label>
+          ИИ для анализа
+          <select value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)}>
+            {(providers.length
+              ? providers
+              : [
+                  { id: "auto", name: "Авто", available: true },
+                  { id: "yandex", name: "YandexGPT", available: false },
+                  { id: "ollama", name: "Ollama", available: false },
+                ]
+            ).map((p) => (
+              <option key={p.id} value={p.id} disabled={p.id !== "auto" && !p.available}>
+                {p.name}
+                {p.model ? ` — ${p.model}` : ""}
+                {!p.available && p.id !== "auto" ? " (недоступен)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedProvider?.hint && (
+          <p style={{ color: "var(--muted)", fontSize: "0.8rem", margin: 0, gridColumn: "1 / -1" }}>
+            {selectedProvider.hint}
+          </p>
+        )}
         <label style={{ gridColumn: "1 / -1" }}>
           Темы
           <textarea value={topics} onChange={(e) => setTopics(e.target.value)} />
@@ -462,7 +495,17 @@ function DigestPanel({
 
       {markdown && (
         <div className="digest-output">
-          <ReactMarkdown>{markdown}</ReactMarkdown>
+          <ReactMarkdown
+            components={{
+              a: ({ href, children }) => (
+                <a href={href} target="_blank" rel="noreferrer">
+                  {children}
+                </a>
+              ),
+            }}
+          >
+            {markdown}
+          </ReactMarkdown>
         </div>
       )}
     </div>

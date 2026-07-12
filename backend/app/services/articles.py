@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import asc, desc, or_
+from sqlalchemy import asc, case, desc, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Article, Country, NewsSource
@@ -54,11 +54,15 @@ def query_articles(
         "fetched_at": Article.fetched_at,
     }
     column = sort_map.get(sort_by, Article.published_at)
-    direction = desc if sort_order.lower() == "desc" else asc
-    q = q.order_by(direction(column.nulls_last()), desc(Article.id))
+    # SQLite не поддерживает NULLS LAST — null-значения в конец через CASE
+    nulls_last = case((column.is_(None), 1), else_=0)
+    if sort_order.lower() == "desc":
+        order = (nulls_last, desc(column), desc(Article.id))
+    else:
+        order = (nulls_last, asc(column), desc(Article.id))
 
     total = q.count()
-    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    items = q.order_by(*order).offset((page - 1) * page_size).limit(page_size).all()
     return items, total
 
 
