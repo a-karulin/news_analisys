@@ -2,34 +2,93 @@
 
 Агрегатор международных новостей с разбивкой источников по странам, реестром с фильтрацией и генерацией **редакционного дайджеста прессы** по заданным темам и строгому диапазону дат.
 
+**База данных:** PostgreSQL.
+
 ## Возможности
 
-- **50+ источников** из вашего списка (США, Великобритания, ЕС, Азия, Ближний Восток, Африка и др.) с привязкой к стране
-- **UI**: добавление СМИ (название, URL, RSS, страна)
-- **Реестр новостей**: фильтр по датам, странам, поиск; сортировка по дате, заголовку, источнику, стране
-- **Сбор** через публичные RSS-ленты (где они указаны в seed)
-- **Дайджест**: LLM формирует блоки «Источник / Заголовок / Суть / Контекст / Цитата / Ссылка» с запретом на выдуманные данные (см. промпт в `backend/app/services/digest.py`)
+- **50+ источников** (США, Великобритания, ЕС, Азия и др.) с привязкой к стране
+- **UI**: добавление СМИ, реестр с фильтрами и сортировкой
+- **Сбор** через RSS-ленты
+- **Дайджест**: YandexGPT, Ollama (локально) или авто-режим
 
-## Требования
+---
 
-- Python 3.11+
-- Node.js 18+
-- **YandexGPT** (облако, опционально) или **Ollama** (локально, бесплатно)
+## Установка и запуск на macOS
 
-## Запуск
+### 1. Зависимости системы
 
-### Backend
+```bash
+# Homebrew (если ещё нет): https://brew.sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+brew install python@3.12 node docker
+```
+
+Для локального PostgreSQL без Docker (вариант B ниже):
+
+```bash
+brew install postgresql@16
+```
+
+### 2. PostgreSQL
+
+#### Вариант A — Docker (рекомендуется)
+
+```bash
+cd /path/to/news_analysis
+docker compose up -d
+docker compose ps   # STATUS: healthy
+```
+
+Параметры по умолчанию:
+- хост: `127.0.0.1:5432`
+- БД: `news_analysis`
+- пользователь / пароль: `news` / `news`
+
+#### Вариант B — PostgreSQL через Homebrew
+
+```bash
+brew services start postgresql@16
+
+# Создание пользователя и базы (один раз)
+psql postgres <<'SQL'
+CREATE USER news WITH PASSWORD 'news' CREATEDB;
+CREATE DATABASE news_analysis OWNER news;
+SQL
+```
+
+Проверка:
+
+```bash
+psql postgresql://news:news@127.0.0.1:5432/news_analysis -c "SELECT version();"
+```
+
+### 3. Backend
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3.12 -m venv .venv
+source .venv/bin/activate
+
 pip install -r requirements.txt
-cp .env.example .env        # YANDEX_FOLDER_ID, YANDEX_API_KEY
+cp .env.example .env
+# при необходимости отредактируйте DATABASE_URL и ключи Yandex/Ollama
+
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
+При первом запуске автоматически:
+- создаются таблицы в PostgreSQL;
+- загружаются страны и источники (seed).
+
+Проверка:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+# ожидается: "database": "postgresql", "database_connected": true
+```
+
+### 4. Frontend
 
 ```bash
 cd frontend
@@ -39,107 +98,79 @@ npm run dev
 
 Откройте http://localhost:5173
 
+### 5. (Опционально) Ollama — локальный ИИ
+
+```bash
+brew install ollama
+ollama serve          # отдельный терминал
+ollama pull qwen2.5:7b
+```
+
+В `backend/.env` уже задано `OLLAMA_MODEL=qwen2.5:7b`.
+
+---
+
+## Перенос данных из SQLite
+
+Если раньше использовалась SQLite-база `backend/news_analysis.db`:
+
+```bash
+cd backend
+source .venv/bin/activate
+# PostgreSQL должен быть запущен
+python scripts/migrate_sqlite_to_postgres.py --sqlite ./news_analysis.db
+```
+
+---
+
+## Переменные окружения (`backend/.env`)
+
+| Переменная | Пример | Описание |
+|------------|--------|----------|
+| `DATABASE_URL` | `postgresql+psycopg://news:news@127.0.0.1:5432/news_analysis` | Подключение к PostgreSQL |
+| `YANDEX_FOLDER_ID` | `b1g...` | Каталог Yandex Cloud |
+| `YANDEX_API_KEY` | `AQVN...` | API-ключ YandexGPT |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Локальная модель |
+| `LLM_DEFAULT_PROVIDER` | `auto` | `auto` / `yandex` / `ollama` |
+
+---
+
 ## Рабочий процесс
 
-1. Вкладка **«Реестр новостей»** → **«Собрать новости (RSS)»** — загрузка статей в БД.
-2. Отфильтруйте период (например 14–16.05.2026) и страны.
-3. Вкладка **«Дайджест»** — укажите темы, те же даты, нажмите **«Сформировать дайджест»**.
+1. **Реестр новостей** → «Собрать новости (RSS)».
+2. Задайте период и страны.
+3. **Дайджест** → темы → выберите ИИ → «Сформировать дайджест».
 
-Во вкладке **«Дайджест»** выберите ИИ:
-- **Авто** — YandexGPT, если есть ключ; иначе локальный Ollama; иначе черновик без LLM.
-- **YandexGPT** — только облако.
-- **Ollama** — только локальная модель.
+---
 
-Проверка: `GET http://127.0.0.1:8000/api/llm/providers` или `/api/health`.
-
-### YandexGPT (облако)
-
-1. [Yandex Cloud](https://console.yandex.cloud/) → каталог → **ID каталога** → `YANDEX_FOLDER_ID`.
-2. Сервисный аккаунт с ролью `ai.languageModels.user` → **API-ключ** → `YANDEX_API_KEY`.
-3. (Опционально) `YANDEX_MODEL=yandexgpt-lite` для более быстрых ответов.
-
-Документация: [Foundation Models — YandexGPT](https://yandex.cloud/ru/docs/foundation-models/).
-
-### Локальный ИИ (Ollama)
-
-Ollama запускает open-source модели на вашем Mac/PC без облачных ключей.
-
-#### macOS
+## Остановка сервисов
 
 ```bash
-# 1. Установка (официальный установщик)
-brew install ollama
-# или скачайте с https://ollama.com/download
+# PostgreSQL (Docker)
+docker compose down
 
-# 2. Запуск сервера (в отдельном терминале или как фоновый сервис)
-ollama serve
-
-# 3. Скачивание модели (рекомендуется для русского текста)
-ollama pull qwen2.5:7b
-# альтернативы: llama3.2, gemma2:9b, mistral
-
-# 4. Проверка
-ollama list
-curl http://127.0.0.1:11434/api/tags
+# PostgreSQL (Homebrew)
+brew services stop postgresql@16
 ```
 
-В `backend/.env` (по умолчанию уже так):
-
-```env
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:7b
-```
-
-Перезапустите backend. В `/api/health` должно быть `"ollama_available": true`.
-
-#### Linux
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve &
-ollama pull qwen2.5:7b
-```
-
-#### Windows
-
-Скачайте установщик с [ollama.com](https://ollama.com/download), после установки в PowerShell:
-
-```powershell
-ollama pull qwen2.5:7b
-```
-
-Сервер стартует автоматически.
-
-#### Требования к железу
-
-| Модель | RAM (ориентир) |
-|--------|----------------|
-| `qwen2.5:7b` | 8 GB+ |
-| `qwen2.5:14b` | 16 GB+ |
-| `llama3.2:3b` | 4 GB+ (быстрее, но слабее для длинных дайджестов) |
-
-Для дайджестов на 10+ материалов лучше **7B+** и **16 GB RAM**.
-
-## Ограничения
-
-- Многие платные СМИ (NYT, WSJ, FT, Economist…) **не отдают полный текст** через RSS; для них укажите рабочий RSS вручную или подключите отдельный парсер/API.
-- Даты в RSS иногда в часовом поясе источника — фильтр идёт по полю `published_at` из ленты.
-- Цитаты «на языке оригинала» в полном объёме возможны только если в ленте есть summary/текст; иначе LLM обязан это указать (заложено в system prompt).
+---
 
 ## Структура
 
 ```
-backend/app/          — FastAPI, SQLite, ingest, digest
+backend/app/          — FastAPI, PostgreSQL, ingest, digest
 frontend/src/         — React UI
+docker-compose.yml    — PostgreSQL для разработки
 ```
 
-## API (кратко)
+## API
 
 | Метод | Путь | Описание |
 |-------|------|----------|
+| GET | `/api/health` | Статус БД и ИИ |
 | GET | `/api/countries` | Страны |
 | GET/POST | `/api/sources` | Источники |
-| GET | `/api/articles` | Реестр (+ query-параметры фильтров) |
+| GET | `/api/articles` | Реестр |
 | POST | `/api/articles/ingest` | Сбор RSS |
 | GET | `/api/llm/providers` | Доступные ИИ |
-| POST | `/api/digests/generate` | Дайджест (`llm_provider`: auto/yandex/ollama) |
+| POST | `/api/digests/generate` | Дайджест |

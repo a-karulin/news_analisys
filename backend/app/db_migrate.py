@@ -1,4 +1,4 @@
-"""Простые миграции SQLite при старте (без Alembic)."""
+"""Лёгкие миграции схемы при старте (без Alembic)."""
 
 from sqlalchemy import inspect, text
 
@@ -13,4 +13,9 @@ def run_migrations() -> None:
     columns = {col["name"] for col in inspector.get_columns("digest_runs")}
     if "llm_provider" not in columns:
         with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE digest_runs ADD COLUMN llm_provider VARCHAR(32)"))
+            conn.execute(
+                text(
+                    "ALTER TABLE digest_runs "
+                    "ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(32)"
+                )
+            )

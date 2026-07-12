@@ -5,8 +5,20 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+
+def _create_engine():
+    url = settings.database_url
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+    )
+
+
+engine = _create_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
@@ -43,8 +44,18 @@ app.include_router(llm.router)
 @app.get("/api/health")
 def health() -> dict[str, str | bool | None]:
     ollama_ok = ollama.is_available()
+    db_ok = False
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
     return {
-        "status": "ok",
+        "status": "ok" if db_ok else "degraded",
+        "database": "postgresql" if settings.database_url.startswith("postgresql") else "other",
+        "database_connected": db_ok,
         "llm_default_provider": settings.llm_default_provider,
         "yandex_gpt_configured": settings.yandex_configured,
         "ollama_available": ollama_ok,

@@ -4,7 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = "sqlite:///./news_analysis.db"
+    database_url: str = (
+        "postgresql+psycopg://news:news@127.0.0.1:5432/news_analysis"
+    )
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     ingest_user_agent: str = (
         "NewsAnalysisBot/1.0 (+https://github.com/local/news-analysis; research aggregator)"
