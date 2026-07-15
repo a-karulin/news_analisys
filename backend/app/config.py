@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+psycopg://news:news@127.0.0.1:5432/news_analysis"
     )
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,https://news-analisys-1.onrender.com"
     ingest_user_agent: str = (
         "NewsAnalysisBot/1.0 (+https://github.com/local/news-analysis; research aggregator)"
     )
