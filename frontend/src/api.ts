@@ -45,8 +45,12 @@ export type LLMProvider = {
   hint: string | null;
 };
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const url = `${API_BASE_URL}${path}`;
+
+  const res = await fetch(url, {
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
